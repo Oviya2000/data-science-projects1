@@ -1,0 +1,10 @@
+{
+  "rows": 1470,
+  "cols": 29,
+  "missing_values": 0,
+  "duplicates": 0,
+  "attrition_rate": 0.1245,
+  "avg_monthly_income": 8684,
+  "avg_age": 39.0,
+  "avg_years_at_company": 12.3
+}

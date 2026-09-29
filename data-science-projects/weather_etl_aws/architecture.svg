@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 380" role="img" aria-label="Weather ETL architecture on AWS">
+  <style>
+    .box{fill:#fff;stroke:#3d5a80;stroke-width:1.5;rx:6;ry:6}
+    .lambda{fill:#fff3e6;stroke:#d97706}
+    .stor{fill:#e6f0ff;stroke:#1d4ed8}
+    .orch{fill:#efe6ff;stroke:#7c3aed}
+    .glue{fill:#e6ffea;stroke:#059669}
+    .arrow{stroke:#3d5a80;stroke-width:1.5;fill:none;marker-end:url(#arr)}
+    .fail{stroke:#c8163c;stroke-width:1.5;fill:none;stroke-dasharray:5 4;marker-end:url(#arr-r)}
+    text{font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;fill:#222;text-anchor:middle}
+    .t{font-weight:600;font-size:13px}
+    .sm{font-size:10px;fill:#605e5c}
+    .title{font-size:16px;font-weight:600;text-anchor:start;fill:#252423}
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#3d5a80"/>
+    </marker>
+    <marker id="arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#c8163c"/>
+    </marker>
+  </defs>
+
+  <text x="18" y="26" class="title">Weather ETL Pipeline · AWS Step Functions</text>
+
+  <!-- Trigger -->
+  <rect x="20" y="60" width="130" height="60" class="box orch"/>
+  <text x="85" y="82" class="t">EventBridge</text>
+  <text x="85" y="100" class="sm">rate(1 hour)</text>
+
+  <!-- Step Functions envelope -->
+  <rect x="170" y="50" width="600" height="240" class="box orch" fill="#f7f2ff"/>
+  <text x="470" y="70" class="t">Step Functions state machine · weather-etl</text>
+
+  <!-- Lambdas -->
+  <rect x="185" y="95" width="130" height="58" class="box lambda"/>
+  <text x="250" y="118" class="t">FetchWeather</text>
+  <text x="250" y="135" class="sm">Open-Meteo API</text>
+
+  <rect x="330" y="95" width="130" height="58" class="box lambda"/>
+  <text x="395" y="118" class="t">Validate</text>
+  <text x="395" y="135" class="sm">Schema + ranges</text>
+
+  <rect x="475" y="95" width="130" height="58" class="box lambda"/>
+  <text x="540" y="118" class="t">Transform</text>
+  <text x="540" y="135" class="sm">Feels-like + band</text>
+
+  <rect x="620" y="95" width="130" height="58" class="box lambda"/>
+  <text x="685" y="118" class="t">LoadPartitioned</text>
+  <text x="685" y="135" class="sm">Parquet → S3</text>
+
+  <path d="M315 124 L330 124" class="arrow"/>
+  <path d="M460 124 L475 124" class="arrow"/>
+  <path d="M605 124 L620 124" class="arrow"/>
+
+  <!-- Choice + noop -->
+  <polygon points="395,180 425,200 395,220 365,200" fill="#fff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="395" y="204" font-size="11" font-weight="600">records?</text>
+  <path d="M395 153 L395 180" class="arrow"/>
+  <text x="440" y="196" class="sm" text-anchor="start">yes</text>
+  <path d="M425 200 L475 152" class="arrow"/>
+  <rect x="330" y="245" width="130" height="30" class="box" fill="#eee"/>
+  <text x="395" y="264">Pass · no records</text>
+  <path d="M395 220 L395 245" class="arrow"/>
+
+  <!-- Failure path -->
+  <rect x="620" y="230" width="130" height="45" class="box" fill="#fff0f0" stroke="#c8163c"/>
+  <text x="685" y="252" class="t" fill="#c8163c">NotifyFailure</text>
+  <text x="685" y="268" class="sm">SNS → Slack/email</text>
+  <path d="M250 153 Q250 230 620 250" class="fail"/>
+  <path d="M395 153 Q395 220 620 255" class="fail"/>
+  <path d="M540 153 Q540 220 620 260" class="fail"/>
+  <path d="M685 153 Q685 200 685 230" class="fail"/>
+
+  <!-- Trigger -> SM -->
+  <path d="M150 90 L185 100" class="arrow"/>
+
+  <!-- Storage & catalog -->
+  <rect x="800" y="95" width="130" height="58" class="box stor"/>
+  <text x="865" y="118" class="t">Amazon S3</text>
+  <text x="865" y="135" class="sm">partitioned parquet</text>
+  <path d="M750 124 L800 124" class="arrow"/>
+
+  <rect x="800" y="185" width="130" height="45" class="box glue"/>
+  <text x="865" y="207" class="t">Glue Catalog</text>
+  <text x="865" y="222" class="sm">weather.readings</text>
+
+  <rect x="800" y="245" width="130" height="45" class="box glue"/>
+  <text x="865" y="267" class="t">Athena</text>
+  <text x="865" y="282" class="sm">SQL queries</text>
+
+  <path d="M865 153 L865 185" class="arrow"/>
+  <path d="M865 230 L865 245" class="arrow"/>
+
+  <!-- Legend -->
+  <g transform="translate(20 320)">
+    <rect x="0" y="0" width="14" height="14" class="lambda"/>
+    <text x="20" y="12" text-anchor="start">Lambda</text>
+    <rect x="90" y="0" width="14" height="14" class="orch"/>
+    <text x="110" y="12" text-anchor="start">Orchestration</text>
+    <rect x="200" y="0" width="14" height="14" class="stor"/>
+    <text x="220" y="12" text-anchor="start">Storage</text>
+    <rect x="290" y="0" width="14" height="14" class="glue"/>
+    <text x="310" y="12" text-anchor="start">Analytics</text>
+    <line x1="380" y1="7" x2="410" y2="7" class="fail"/>
+    <text x="415" y="12" text-anchor="start">Catch → SNS</text>
+  </g>
+</svg>

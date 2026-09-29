@@ -1,0 +1,74 @@
+{
+  "Comment": "Weather ETL — fetch, validate, transform, load. Retries with backoff; failures raise SNS.",
+  "StartAt": "FetchWeather",
+  "States": {
+    "FetchWeather": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {"FunctionName": "${FetchArn}", "Payload.$": "$"},
+      "ResultSelector": {"records.$": "$.Payload.records", "run_id.$": "$.Payload.run_id"},
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 5, "MaxAttempts": 3, "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "NotifyFailure", "ResultPath": "$.error"}],
+      "Next": "Validate"
+    },
+
+    "Validate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {"FunctionName": "${ValidateArn}", "Payload.$": "$"},
+      "ResultSelector": {"records.$": "$.Payload.records", "run_id.$": "$.Payload.run_id", "valid_count.$": "$.Payload.valid_count"},
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "NotifyFailure", "ResultPath": "$.error"}],
+      "Next": "HasRecords?"
+    },
+
+    "HasRecords?": {
+      "Type": "Choice",
+      "Choices": [
+        {"Variable": "$.valid_count", "NumericGreaterThan": 0, "Next": "Transform"}
+      ],
+      "Default": "NoRecords"
+    },
+
+    "NoRecords": {
+      "Type": "Pass",
+      "Result": {"status": "no records to load"},
+      "End": true
+    },
+
+    "Transform": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {"FunctionName": "${TransformArn}", "Payload.$": "$"},
+      "ResultSelector": {"records.$": "$.Payload.records", "run_id.$": "$.Payload.run_id"},
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "NotifyFailure", "ResultPath": "$.error"}],
+      "Next": "LoadPartitioned"
+    },
+
+    "LoadPartitioned": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {"FunctionName": "${LoadArn}", "Payload.$": "$"},
+      "ResultSelector": {"loaded.$": "$.Payload.loaded", "s3_uri.$": "$.Payload.s3_uri", "run_id.$": "$.Payload.run_id"},
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 3, "MaxAttempts": 2, "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "NotifyFailure", "ResultPath": "$.error"}],
+      "End": true
+    },
+
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {"FunctionName": "${NotifyArn}", "Payload.$": "$"},
+      "End": true
+    }
+  }
+}

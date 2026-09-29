@@ -1,0 +1,8 @@
+segment,customers,avg_monetary,avg_frequency,avg_recency_days
+Champions,798,546.91,4.09,18.3
+At Risk,476,467.21,3.64,190.3
+Cant Lose Them,114,402.66,1.89,247.5
+Needs Attention,1184,304.23,2.57,110.9
+Loyal,480,286.85,2.54,21.0
+New / Recent,532,132.56,1.42,22.1
+Hibernating,940,126.76,1.28,275.6

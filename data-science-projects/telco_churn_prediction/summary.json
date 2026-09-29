@@ -1,0 +1,14 @@
+{
+  "n_rows": 7043,
+  "churn_rate": 0.1904,
+  "test_size": 1409,
+  "best_model": "LogisticRegression",
+  "best_metrics": {
+    "model": "LogisticRegression",
+    "accuracy": 0.8219,
+    "precision": 0.581,
+    "recall": 0.2276,
+    "f1": 0.3271,
+    "roc_auc": 0.8115
+  }
+}

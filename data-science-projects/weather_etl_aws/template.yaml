@@ -1,0 +1,182 @@
+# AWS SAM template — Weather ETL Pipeline
+# ==============================================================================
+# EventBridge (hourly) ─► StartExecution ─► Step Functions state machine
+#
+#     ┌──────────────────┐   ┌──────────────┐   ┌────────────────┐   ┌──────────────────┐
+#     │ FetchWeatherFn   │─►│ ValidateFn   │─►│ TransformFn    │─►│ LoadPartitionedFn│
+#     │ Open-Meteo API   │  │ Schema check │  │ Derive fields  │  │ S3 (parquet)     │
+#     └──────────────────┘  └──────────────┘  └────────────────┘  └──────────────────┘
+#                                                                          │
+#                                                                          ▼
+#                                                        Glue Catalog ► Athena (queries)
+#
+# Errors → NotifyFailure (SNS to ops)
+# ==============================================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Hourly weather ETL pipeline for 10 cities, orchestrated by Step Functions,
+  landing partitioned Parquet in S3 and queryable through Athena.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+    Default: dev
+  DataBucketName:
+    Type: String
+    Default: weather-etl-data-oviya
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 60
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        DATA_BUCKET: !Ref DataBucketName
+
+Resources:
+
+  # ---------- Storage ----------
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref DataBucketName
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - Id: MoveRawToGlacierAfter90Days
+            Status: Enabled
+            Prefix: raw/
+            Transitions:
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+
+  # ---------- Lambdas ----------
+  FetchWeatherFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub weather-fetch-${Environment}
+      Handler: fetch_weather.handler
+      CodeUri: lambdas/
+      Policies:
+        - S3WritePolicy: {BucketName: !Ref DataBucketName}
+
+  ValidateFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub weather-validate-${Environment}
+      Handler: validate.handler
+      CodeUri: lambdas/
+
+  TransformFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub weather-transform-${Environment}
+      Handler: transform.handler
+      CodeUri: lambdas/
+
+  LoadPartitionedFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub weather-load-${Environment}
+      Handler: load_partitioned.handler
+      CodeUri: lambdas/
+      MemorySize: 512
+      Policies:
+        - S3CrudPolicy:      {BucketName: !Ref DataBucketName}
+        - AWSGlueConsoleFullAccess
+
+  NotifyFailureFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub weather-notify-${Environment}
+      Handler: notify_failure.handler
+      CodeUri: lambdas/
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: !Ref FailureTopic
+      Environment:
+        Variables:
+          TOPIC_ARN: !Ref FailureTopic
+
+  FailureTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub weather-etl-failures-${Environment}
+
+  # ---------- Step Functions ----------
+  WeatherPipeline:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub weather-etl-${Environment}
+      DefinitionUri: statemachine/pipeline.asl.json
+      DefinitionSubstitutions:
+        FetchArn:    !GetAtt FetchWeatherFn.Arn
+        ValidateArn: !GetAtt ValidateFn.Arn
+        TransformArn: !GetAtt TransformFn.Arn
+        LoadArn:     !GetAtt LoadPartitionedFn.Arn
+        NotifyArn:   !GetAtt NotifyFailureFn.Arn
+      Policies:
+        - LambdaInvokePolicy: {FunctionName: !Ref FetchWeatherFn}
+        - LambdaInvokePolicy: {FunctionName: !Ref ValidateFn}
+        - LambdaInvokePolicy: {FunctionName: !Ref TransformFn}
+        - LambdaInvokePolicy: {FunctionName: !Ref LoadPartitionedFn}
+        - LambdaInvokePolicy: {FunctionName: !Ref NotifyFailureFn}
+      Events:
+        HourlySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
+            Name: !Sub weather-etl-hourly-${Environment}
+            Enabled: true
+
+  # ---------- Glue + Athena ----------
+  WeatherDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput: {Name: !Sub weather_${Environment}}
+
+  WeatherTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref WeatherDatabase
+      TableInput:
+        Name: readings
+        TableType: EXTERNAL_TABLE
+        PartitionKeys:
+          - {Name: year,  Type: string}
+          - {Name: month, Type: string}
+          - {Name: day,   Type: string}
+        StorageDescriptor:
+          Location: !Sub s3://${DataBucketName}/curated/readings/
+          InputFormat:  org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - {Name: city,            Type: string}
+            - {Name: country,         Type: string}
+            - {Name: latitude,        Type: double}
+            - {Name: longitude,       Type: double}
+            - {Name: observed_at_utc, Type: timestamp}
+            - {Name: temperature_c,   Type: double}
+            - {Name: feels_like_c,    Type: double}
+            - {Name: humidity_pct,    Type: int}
+            - {Name: wind_speed_kmh,  Type: double}
+            - {Name: condition,       Type: string}
+            - {Name: comfort_band,    Type: string}
+
+Outputs:
+  StateMachineArn:   {Value: !Ref WeatherPipeline}
+  DataBucket:        {Value: !Ref DataBucket}
+  GlueDatabase:      {Value: !Ref WeatherDatabase}
+  FailureTopicArn:   {Value: !Ref FailureTopic}

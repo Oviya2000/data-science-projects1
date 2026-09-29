@@ -1,0 +1,4 @@
+MaritalStatus,headcount,leavers,attrition_rate,avg_income
+Divorced,326.0,37.0,0.1135,8488.0
+Married,660.0,66.0,0.1,8668.0
+Single,484.0,80.0,0.1653,8837.0
