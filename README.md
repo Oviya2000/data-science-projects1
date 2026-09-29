@@ -1,1 +1,1 @@
-# ml_churn
+# data-science-projects
